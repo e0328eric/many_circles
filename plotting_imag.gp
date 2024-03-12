@@ -1,6 +1,6 @@
 set view map
-set pm3d interpolate 4, 4
-set dgrid3d 50, 50 gauss 0.6, 0.6
+set pm3d interpolate 7, 7
+set dgrid3d 100, 100
 
 splot "datas_imag.dat" using 1:2:3 with pm3d
 

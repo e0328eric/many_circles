@@ -3,7 +3,7 @@
 
 #define GSL_COMPLEX_LEGACY 1
 #include <gsl/gsl_complex.h>
-#include <gsl/gsl_linalg.h>
+#include <gsl/gsl_vector_complex_double.h>
 
 #include "circle.h"
 

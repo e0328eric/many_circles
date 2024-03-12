@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <gsl/gsl_complex_math.h>
+#include <gsl/gsl_linalg.h>
 
 #include "extended_bessel.h"
 #include "single_circle_solv.h"
@@ -78,12 +79,10 @@ void solve_single_circle(InitialCond_Single* icond) {
                 icond->circle.rho)); // assumed that ρ0 = 1
     }
 
-    // using LU decomposition to solve Ax = init_wave.
-    int s;
-    gsl_permutation* p = gsl_permutation_alloc(mat_size);
-
-    gsl_linalg_complex_LU_decomp(mat_a, p, &s);
-    gsl_linalg_complex_LU_solve(mat_a, p, initial, x);
+    // using QR decomposition to solve Ax = init_wave.
+    gsl_matrix_complex* mat_t = gsl_matrix_complex_alloc(mat_size, mat_size);
+    gsl_linalg_complex_QR_decomp_r(mat_a, mat_t);
+    gsl_linalg_complex_QR_solve_r(mat_a, mat_t, initial, x);
 
     gsl_vector_complex_const_view phi =
         gsl_vector_complex_const_subvector(x, 0, n);
@@ -98,8 +97,8 @@ void solve_single_circle(InitialCond_Single* icond) {
     gsl_vector_complex_memcpy(icond->phi_outside, &phi.vector);
     gsl_vector_complex_memcpy(icond->psi_inside, &psi.vector);
 
-    gsl_permutation_free(p);
     gsl_vector_complex_free(x);
+    gsl_matrix_complex_free(mat_t);
     gsl_matrix_complex_free(mat_a);
     gsl_vector_complex_free(initial);
 }
