@@ -1,3 +1,7 @@
+#ifndef __linux__
+#error "since this program uses <dlfcn.h>, only linux can run this program"
+#endif
+
 #include <assert.h>
 #include <dlfcn.h>
 #include <stdio.h>
@@ -28,6 +32,8 @@
 zbesj_wrap_t zbesj_wrap = NULL;
 zbesy_wrap_t zbesy_wrap = NULL;
 
+static void main_calculation(void);
+
 int main(void) {
     char* error;
     void* handle =
@@ -49,24 +55,24 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
-    printf("J2(2 + 3i) = " CPX_FMT "\n",
-           CPX_ARG(besselj(2, gsl_complex_rect(2, 3))));
+    // run main function
+    main_calculation();
 
     dlclose(handle);
 }
 
-#if 0
-int main(void) {
+static void main_calculation(void) {
     printf("Solve the Helmholtz equation where ω = %.5f\n", OMEGA);
 
     // Initialization for solving single domain problem
     Circle circle = {
         .center = CREAL(0),
         .radius = 1.0,
-        .rho = -7.0,
-        .kappa = 1.0,
+        .rho = CREAL(1.0),
+        .kappa = CREAL(1.0),
     };
-    assert(fabs(circle.rho) >= TOLERANCE && "circle.rho should not be zero");
+    assert(gsl_complex_abs(circle.rho) >= TOLERANCE &&
+           "circle.rho should not be zero");
 
     printf("Solving that PDE on the single circle where N=%zu and\n",
            (size_t)N);
@@ -84,18 +90,10 @@ int main(void) {
     FILE* data_real_file = fopen("datas_real.dat", "w+");
     FILE* data_imag_file = fopen("datas_imag.dat", "w+");
     FILE* data_abs_file = fopen("datas_abs.dat", "w+");
-    FILE* circle_file = fopen("circle.dat", "w+");
-
-    fprintf(circle_file, "#  x          y          z\n");
-    gsl_complex circle_path;
-    for (double theta = 0.0; theta < 2 * M_PI; theta += 0.01) {
-        circle_path = gsl_complex_polar(circle.radius, theta);
-        fprintf(circle_file, "%.5f    %.5f    0.00000\n", GSL_REAL(circle_path),
-                GSL_IMAG(circle_path));
-    }
 
     fprintf(data_real_file, "#  x          y       real_val\n");
     fprintf(data_imag_file, "#  x          y       imag_val\n");
+    fprintf(data_abs_file, "#  x          y        abs_val\n");
 
     gsl_complex coord, val;
     for (double r = DRAW_RADIUS; r > 0.0; r -= DRAW_DELTA) {
@@ -112,10 +110,8 @@ int main(void) {
         }
     }
 
-    fclose(circle_file);
     fclose(data_abs_file);
     fclose(data_imag_file);
     fclose(data_real_file);
     initial_cond_single_deinit(&icond);
 }
-#endif

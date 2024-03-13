@@ -8,8 +8,8 @@
 typedef struct {
     gsl_complex center;
     double radius;
-    double rho;
-    double kappa;
+    gsl_complex rho;
+    gsl_complex kappa;
 } Circle;
 
 void circle_set_center(Circle* domain, double x, double y);

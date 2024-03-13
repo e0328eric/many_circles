@@ -12,12 +12,6 @@ project(
 )
 
 gsl = dependency('gsl')
-complex_bessel = declare_dependency(
-  link_args: [
-    '-lcomplex_bessel',
-    '-L/home/almagest/Github/Many_Circles/complex_bessel/build/lib',
-  ],
-)
 
 sources = files(
     'src/main.c',
@@ -28,5 +22,5 @@ sources = files(
 )
 
 executable('many_circles', sources,
-  dependencies: [gsl, complex_bessel],
+  dependencies: [gsl],
 )

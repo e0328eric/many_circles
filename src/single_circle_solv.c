@@ -22,7 +22,8 @@ static gsl_vector_complex* make_initial_wave(double r, double omega,
 InitialCond_Single initial_cond_single_init(const Circle* circle, double omega,
                                             gsl_complex* datas,
                                             size_t datas_len) {
-    assert(fabs(circle->rho) >= TOLERANCE && "circle.rho should not be zero");
+    assert(gsl_complex_abs(circle->rho) >= TOLERANCE &&
+           "circle.rho should not be zero");
     assert(omega >= 0 && "`omega` should be positive");
 
     InitialCond_Single output;
@@ -73,7 +74,7 @@ void solve_single_circle(InitialCond_Single* icond) {
                 k_star(&icond->circle, i, CREAL(icond->omega)), 0.5)));
         gsl_matrix_complex_set(
             mat_a, idx + n, idx + n,
-            gsl_complex_div_real(
+            gsl_complex_div(
                 gsl_complex_add_real(
                     k_star(&icond->circle, i, icond->wave_number), -0.5),
                 icond->circle.rho)); // assumed that ρ0 = 1
