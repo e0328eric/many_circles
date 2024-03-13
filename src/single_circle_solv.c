@@ -6,7 +6,7 @@
 #include <gsl/gsl_complex_math.h>
 #include <gsl/gsl_linalg.h>
 
-#include "extended_bessel.h"
+#include "bessel_func.h"
 #include "single_circle_solv.h"
 #include "single_layer.h"
 #include "utility.h"

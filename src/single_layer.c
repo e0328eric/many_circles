@@ -5,7 +5,7 @@
 #include <gsl/gsl_complex_math.h>
 #include <gsl/gsl_math.h>
 
-#include "extended_bessel.h"
+#include "bessel_func.h"
 #include "single_layer.h"
 
 gsl_complex single_layer_potential(const Circle* domain, int n,
