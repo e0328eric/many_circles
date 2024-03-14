@@ -11,17 +11,18 @@
 #include "single_layer.h"
 #include "utility.h"
 
-#define LOOP_FOR(i, len) for (long i = (len >> 1) - len + 1; i <= len >> 1; ++i)
+#define LOOP_FOR(i, len) \
+    for (int i = ((int)len >> 1) - (int)len + 1; i <= (int)len >> 1; ++i)
 
 #define IDX(i, len) (i + (len >> 1))
 
-static gsl_vector_complex* make_initial_wave(double r, double omega,
-                                             gsl_complex* datas,
-                                             size_t datas_len);
-
-InitialCond_Single initial_cond_single_init(const Circle* circle, double omega,
-                                            gsl_complex* datas,
-                                            size_t datas_len) {
+InitialCond_Single initial_cond_single_init(
+    const Circle* circle,
+    double omega,
+    const gsl_complex* datas,
+    size_t datas_len,
+    Init_wave_fnt_t make_initial_wave
+) {
     assert(gsl_complex_abs(circle->rho) >= TOLERANCE &&
            "circle.rho should not be zero");
     assert(omega >= 0 && "`omega` should be positive");
@@ -31,6 +32,7 @@ InitialCond_Single initial_cond_single_init(const Circle* circle, double omega,
     memcpy(&output.circle, circle, sizeof(Circle));
     output.omega = omega;
     output.wave_number = wave_number(circle, omega);
+    output.make_init_wave = make_initial_wave;
 
     output.datas = malloc(sizeof(gsl_complex) * datas_len);
     output.datas_len = datas_len;
@@ -45,19 +47,18 @@ InitialCond_Single initial_cond_single_init(const Circle* circle, double omega,
 void initial_cond_single_deinit(InitialCond_Single* icond) {
     gsl_vector_complex_free(icond->psi_inside);
     gsl_vector_complex_free(icond->phi_outside);
-    free(icond->datas);
 }
 
 void solve_single_circle(InitialCond_Single* icond) {
     const size_t n = icond->datas_len;
     const size_t mat_size = icond->datas_len * 2;
 
-    gsl_vector_complex* initial = make_initial_wave(
-        icond->circle.radius, icond->omega, icond->datas, icond->datas_len);
+    const gsl_vector_complex* initial = (*icond->make_init_wave)(
+        &icond->circle, icond->omega, icond->datas, icond->datas_len);
     gsl_matrix_complex* mat_a = gsl_matrix_complex_calloc(mat_size, mat_size);
     gsl_vector_complex* x = gsl_vector_complex_alloc(mat_size);
 
-    LOOP_FOR(i, (long)n) {
+    LOOP_FOR(i, n) {
         size_t idx = IDX(i, n);
 
         gsl_matrix_complex_set(
@@ -101,11 +102,14 @@ void solve_single_circle(InitialCond_Single* icond) {
     gsl_vector_complex_free(x);
     gsl_matrix_complex_free(mat_t);
     gsl_matrix_complex_free(mat_a);
-    gsl_vector_complex_free(initial);
+    gsl_vector_complex_free((gsl_vector_complex*)initial);
 }
 
-gsl_complex get_solution_value(const InitialCond_Single* icond, double r,
-                               double theta) {
+gsl_complex get_solution_value(
+    const InitialCond_Single* icond,
+    double r,
+    double theta
+) {
     assert(icond->phi_outside && icond->psi_inside && "not solved yet");
     assert(r > 0 && "`r` should be positive");
 
@@ -113,7 +117,7 @@ gsl_complex get_solution_value(const InitialCond_Single* icond, double r,
     gsl_complex output = GSL_COMPLEX_ZERO;
 
     if (r > icond->circle.radius) {
-        LOOP_FOR(i, (long)n) {
+        LOOP_FOR(i, n) {
             size_t idx = IDX(i, n);
 
             gsl_complex tmp =
@@ -128,7 +132,7 @@ gsl_complex get_solution_value(const InitialCond_Single* icond, double r,
             output = gsl_complex_add(output, tmp);
         }
     } else {
-        LOOP_FOR(i, (long)n) {
+        LOOP_FOR(i, n) {
             size_t idx = IDX(i, n);
 
             gsl_complex tmp =
@@ -138,30 +142,6 @@ gsl_complex get_solution_value(const InitialCond_Single* icond, double r,
             tmp = gsl_complex_mul(tmp, gsl_complex_polar(1, i * theta));
             output = gsl_complex_add(output, tmp);
         }
-    }
-
-    return output;
-}
-
-static gsl_vector_complex* make_initial_wave(double r, double omega,
-                                             gsl_complex* datas,
-                                             size_t datas_len) {
-    assert(datas_len & 1 && "`datas_len` should be odd");
-    assert(omega >= 0 && "`omega` should be positive");
-
-    gsl_vector_complex* output = gsl_vector_complex_alloc(datas_len * 2);
-
-    LOOP_FOR(i, (long)datas_len) {
-        size_t idx = IDX(i, datas_len);
-
-        gsl_vector_complex_set(
-            output, idx,
-            gsl_complex_mul(datas[idx], besselj(i, CREAL(omega * r))));
-        gsl_vector_complex_set(
-            output, idx + datas_len,
-            gsl_complex_mul_real(
-                gsl_complex_mul(datas[idx], besselj_deriv(i, CREAL(omega * r))),
-                omega));
     }
 
     return output;

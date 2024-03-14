@@ -8,8 +8,12 @@
 #include "bessel_func.h"
 #include "single_layer.h"
 
-gsl_complex single_layer_potential(const Circle* domain, int n,
-                                   gsl_complex wave_number, double r) {
+gsl_complex single_layer_potential(
+    const Circle* domain,
+    int n,
+    gsl_complex wave_number,
+    double r
+) {
     assert((r > 0) && "the value `r` should be positive");
 
     if (r > domain->radius) {
@@ -38,6 +42,7 @@ static inline gsl_complex k_star_helper(int n, gsl_complex val) {
 gsl_complex k_star(const Circle* domain, int n, gsl_complex wave_number) {
     gsl_complex val =
         k_star_helper(n, gsl_complex_mul_real(wave_number, domain->radius));
-    return gsl_complex_mul_imag(gsl_complex_mul(val, wave_number),
-                                -M_PI_4 * domain->radius);
+    return gsl_complex_mul_imag(
+        gsl_complex_mul(val, wave_number),
+        -M_PI_4 * domain->radius);
 }
