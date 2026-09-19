@@ -1,0 +1,142 @@
+#import "Io";
+#import "Format";
+#import "File_System/File";
+#import "Math/Core";
+#import "Math/Complex";
+#import "Math/Constants";
+#load "utility.glo";
+#load "circle.glo";
+#load "single_circle_solv.glo";
+#load "many_circle_solv.glo";
+
+OMEGA :: 5.0;
+N :: 11;
+DRAW_RADIUS :: 5.0;
+DRAW_DELTA :: 0.05;
+
+create_output :: (filename: string) -> File {
+    if open(filename, .Write, .Create_Always) == {
+    case .Ok(file); return file;
+    case .Err(error);
+        _ := writef(stderr(), "error: cannot create %: %\n", filename,
+            fs_error_kind_reason(error.kind));
+        exit(1);
+    }
+}
+
+check_io :: (result: Fs_Error!ssize) {
+    if result == {
+    case .Ok;
+    case .Err(error);
+        _ := writef(stderr(), "error writing output: %\n", fs_error_kind_reason(error.kind));
+        exit(1);
+    }
+}
+
+close_output :: (file: *File) {
+    if close(file) == {
+    case .Ok;
+    case .Err(error);
+        _ := writef(stderr(), "error closing output: %\n", fs_error_kind_reason(error.kind));
+        exit(1);
+    }
+}
+
+// Match the original .dat files' five decimal places. Very large values use
+// the standard renderer instead of overflowing the integer conversion.
+fixed5 :: (value: f64) -> string {
+    require(is_finite(value), "cannot write a non-finite field value");
+    magnitude := abs(value);
+    if magnitude > 9.0e12 return tprint("%", value);
+    rounded := cast(s64)floor(magnitude * 100000.0 + 0.5);
+    fraction := rounded % 100000;
+    sign := "";
+    if value < 0.0 sign = "-";
+    return tprint("%{}%{}.%{}%{}%{}%{}%{}", sign, rounded / 100000,
+        fraction / 10000, fraction / 1000 % 10, fraction / 100 % 10,
+        fraction / 10 % 10, fraction % 10);
+}
+
+main :: () {
+    multi := false;
+    args := get_cmdline_args();
+    for idx: 1..args.count {
+        if args[idx] == "--help" {
+            print("usage: many_circle [--multi]\n");
+            print("Default: original single-circle example (omega=5, N=11).\n");
+            print("--multi: two separated material circles (omega=2.3, N=21).\n");
+            print("Writes datas_real.dat, datas_imag.dat and datas_abs.dat in the current directory.\n");
+            return;
+        }
+        if args[idx] == "--multi" multi = true;
+        else {
+            _ := writef(stderr(), "unknown option: % (use --help)\n", args[idx]);
+            exit(1);
+        }
+    }
+
+    single_solution: Single_Solution;
+    multi_solution: Multi_Solution;
+    defer single_solution_free(*single_solution);
+    defer multi_solution_free(*multi_solution);
+    if multi {
+        circles: [2]Circle = .[
+            .{complex128(-1.3, 0.0), 0.6, c_real(2.0), c_real(1.0)},
+            .{complex128(1.3, 0.0), 0.6, complex128(1.5, 0.1), c_real(0.9)}
+        ];
+        data: [21]c128;
+        data[10] = c_real(1.0);
+        print("Solve the Helmholtz equation on two circles, omega=2.3, N=21\n");
+        multi_solution = solve_multi_circle(circles[..], 2.3, data[..]);
+    } else {
+        circle: Circle = .{c_real(0.0), 1.0, c_real(1.0), c_real(1.0)};
+        data: [N]c128;
+        data[N - 1] = c_real(5.0);
+        print("Solve the Helmholtz equation where omega = %\n", OMEGA);
+        print("Solving on the single circle where N=% and\n", N);
+        dump_circle(circle);
+        single_solution = solve_single_circle(circle, OMEGA, data[..]);
+    }
+
+    real_file := create_output("datas_real.dat");
+    defer close_output(*real_file);
+    imag_file := create_output("datas_imag.dat");
+    defer close_output(*imag_file);
+    abs_file := create_output("datas_abs.dat");
+    defer close_output(*abs_file);
+    samples := write_grid(real_file, imag_file, abs_file,
+        *single_solution, *multi_solution, multi);
+    print("Wrote % samples to each datas_*.dat file\n", samples);
+}
+
+write_grid :: (
+    real_file: File, imag_file: File, abs_file: File,
+    single_solution: *Single_Solution, multi_solution: *Multi_Solution,
+    multi: bool,
+) -> ssize {
+    check_io(writef(real_file, "#  x          y       real_val\n"));
+    check_io(writef(imag_file, "#  x          y       imag_val\n"));
+    check_io(writef(abs_file, "#  x          y        abs_val\n"));
+
+    // Keep the original floating-point loop endpoints and sampling order.
+    r := DRAW_RADIUS;
+    samples := 0;
+    while r > 0.0 {
+        theta: f64 = 0.0;
+        while theta < 2.0 * PI {
+            point := c_real(r) * phase(theta);
+            value: c128;
+            if multi value = get_solution_value_multi(multi_solution, point);
+            else value = get_solution_value(single_solution, r, theta);
+            x := fixed5(real_part128(point));
+            y := fixed5(imaginary_part128(point));
+            check_io(writef(real_file, "%    %    %\n", x, y, fixed5(real_part128(value))));
+            check_io(writef(imag_file, "%    %    %\n", x, y, fixed5(imaginary_part128(value))));
+            check_io(writef(abs_file, "%    %    %\n", x, y, fixed5(norm128(value))));
+            samples += 1;
+            theta += 0.02;
+        }
+        r -= DRAW_DELTA;
+    }
+    return samples;
+}

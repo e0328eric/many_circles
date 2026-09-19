@@ -1,0 +1,48 @@
+#load "utility.glo";
+#import "Io";
+#import "File_System/File";
+#import "Math/Complex";
+#import "Math/Core";
+#import,only (complex_bessel_j_integer_result, bessel_y_integer,
+    Special_Function_Status, special_function_error_reason)
+    "Math/SpecialFunctions";
+
+// Interior fields use regular J modes, so complex Y and Hankel kernels are
+// unnecessary. The outgoing exterior medium has real positive wave number.
+besselj :: (n: s64, z: c128) -> c128 {
+    result := complex_bessel_j_integer_result(n, z);
+    if result.status != Special_Function_Status.Ok {
+        _ := writef(stderr(), "error: J_%(% + %{}i): %\n", n,
+            real_part128(z), imaginary_part128(z),
+            special_function_error_reason(result.status));
+        exit(1);
+    }
+    require(finite_complex(result.value), "Bessel J returned a non-finite value");
+    return result.value;
+}
+
+bessely :: (n: s64, x: f64) -> c128 {
+    require(is_finite(x) && x > 0.0,
+        "Bessel Y requires a finite, positive real argument");
+    require(n > -1_000_000 && n < 1_000_000,
+        "Bessel order is outside the supported range");
+    value := bessel_y_integer(n, x);
+    require(is_finite(value), "Bessel Y overflowed");
+    return c_real(value);
+}
+
+hankel1 :: (n: s64, x: f64) -> c128 {
+    return besselj(n, c_real(x)) + complex128(0.0, 1.0) * bessely(n, x);
+}
+
+besselj_deriv :: (n: s64, z: c128) -> c128 {
+    require(n > -999_999 && n < 999_999,
+        "Bessel derivative order is outside the supported range");
+    return (besselj(n - 1, z) - besselj(n + 1, z)) * c_real(0.5);
+}
+
+hankel1_deriv :: (n: s64, x: f64) -> c128 {
+    require(n > -999_999 && n < 999_999,
+        "Hankel derivative order is outside the supported range");
+    return (hankel1(n - 1, x) - hankel1(n + 1, x)) * c_real(0.5);
+}

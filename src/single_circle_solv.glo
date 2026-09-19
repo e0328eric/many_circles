@@ -1,0 +1,101 @@
+#import "Math/Complex";
+#import "Math/Core";
+#load "utility.glo";
+#load "circle.glo";
+#load "bessel_func.glo";
+
+// Coefficients multiply the radial functions directly. This cancels the
+// interior Hankel normalization in the C single-layer representation, so
+// complex J is the only complex special function required.
+Single_Solution :: struct {
+    circle: Circle;
+    omega: f64;
+    wave_number: c128;
+    data: [..]c128;
+    outside: [..]c128;
+    inside: [..]c128;
+}
+
+// data indexes modes -floor(N/2)..floor(N/2), in polar coordinates about
+// circle.center. The exterior background has density and bulk modulus 1.
+solve_single_circle :: (
+    circle: Circle, omega: f64, data: []c128,
+) -> Single_Solution {
+    validate_circle(circle, omega);
+    require(data.count > 0 && data.count % 2 == 1,
+            "the number of Fourier modes must be positive and odd");
+    solution: Single_Solution;
+    solution.circle = circle;
+    solution.omega = omega;
+    solution.wave_number = wave_number(circle, omega);
+    array_reserve(*solution.data, data.count);
+    array_reserve(*solution.outside, data.count);
+    array_reserve(*solution.inside, data.count);
+    half := data.count / 2;
+
+    for idx: 0..data.count {
+        require(finite_complex(data[idx]), "incident coefficients must be finite");
+        n := cast(s64)(idx - half);
+        x := omega * circle.radius;
+        z := solution.wave_number * c_real(circle.radius);
+        a := -hankel1(n, x);
+        b := besselj(n, z);
+        c := -c_real(omega) * hankel1_deriv(n, x);
+        d := solution.wave_number * besselj_deriv(n, z) / circle.rho;
+        u := data[idx] * besselj(n, c_real(x));
+        v := data[idx] * c_real(omega) * besselj_deriv(n, c_real(x));
+        determinant := a * d - b * c;
+        scale := norm128(a) * norm128(d) + norm128(b) * norm128(c);
+        require(is_finite(scale) && finite_complex(determinant) &&
+                norm128(determinant) > 1.0e-14 * scale,
+                "singular or ill-conditioned single-circle system");
+        outside := (u * d - b * v) / determinant;
+        inside := (a * v - u * c) / determinant;
+        require(finite_complex(outside) && finite_complex(inside),
+                "single-circle solve produced a non-finite result");
+        array_add(*solution.data, data[idx]);
+        array_add(*solution.outside, outside);
+        array_add(*solution.inside, inside);
+    }
+    return solution;
+}
+
+single_solution_free :: (solution: *Single_Solution) {
+    array_free(*solution.*.data);
+    array_free(*solution.*.outside);
+    array_free(*solution.*.inside);
+}
+
+// At the boundary take the interior trace, as in the original program.
+// Unlike the original program the removable r=0 limit is supported.
+get_solution_value :: (
+    solution: *Single_Solution, r: f64, theta: f64,
+) -> c128 {
+    require(is_finite(r) && r >= 0.0 && is_finite(theta),
+            "evaluation coordinates must be finite and radius nonnegative");
+    require(solution.*.data.count > 0, "the single-circle solution is empty");
+    output := c_real(0.0);
+    half := solution.*.data.count / 2;
+    for idx: 0..solution.*.data.count {
+        n := cast(s64)(idx - half);
+        radial := c_real(0.0);
+        if r > solution.*.circle.radius {
+            if solution.*.outside[idx] != c_real(0.0)
+                radial += solution.*.outside[idx] * hankel1(n, solution.*.omega * r);
+            if solution.*.data[idx] != c_real(0.0)
+                radial += solution.*.data[idx] * besselj(n, c_real(solution.*.omega * r));
+        } else {
+            if solution.*.inside[idx] != c_real(0.0)
+                radial = solution.*.inside[idx] * besselj(n, solution.*.wave_number * c_real(r));
+        }
+        output += radial * phase(cast(f64)n * theta);
+    }
+    return output;
+}
+
+get_solution_at :: (solution: *Single_Solution, point: c128) -> c128 {
+    require(finite_complex(point), "evaluation point must be finite");
+    relative := point - solution.*.circle.center;
+    return get_solution_value(solution, norm128(relative),
+        atan2(imaginary_part128(relative), real_part128(relative)));
+}

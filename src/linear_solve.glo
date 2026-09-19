@@ -1,0 +1,93 @@
+#import "Math/Complex";
+#import "Math/Core";
+#load "utility.glo";
+
+// Dense row-major Gaussian elimination. Both input views are overwritten.
+// Column equilibration is essential for cylindrical expansions: high-order
+// Hankel and Bessel columns can differ by many orders of magnitude.
+solve_complex_system :: (matrix: []c128, rhs: []c128) -> [..]c128 {
+    size := rhs.count;
+    require(size > 0 && matrix.count / size == size && matrix.count % size == 0,
+            "linear solve requires a square matrix and matching right-hand side");
+    column_scale: [..]f64;
+    row_scale: [..]f64;
+    answer: [..]c128;
+    defer array_free(*column_scale);
+    defer array_free(*row_scale);
+    array_reserve(*column_scale, size);
+    array_reserve(*row_scale, size);
+    array_reserve(*answer, size);
+
+    for column: 0..size {
+        largest: f64 = 0.0;
+        for row: 0..size {
+            magnitude := norm128(matrix[row * size + column]);
+            require(is_finite(magnitude), "linear system contains a non-finite coefficient");
+            if magnitude > largest largest = magnitude;
+        }
+        require(largest > 0.0, "linear system has a zero column");
+        array_add(*column_scale, largest);
+        for row: 0..size {
+            matrix[row * size + column] = matrix[row * size + column] / c_real(largest);
+        }
+    }
+    for row: 0..size {
+        largest: f64 = 0.0;
+        for column: 0..size {
+            magnitude := norm128(matrix[row * size + column]);
+            if magnitude > largest largest = magnitude;
+        }
+        require(largest > 0.0 && is_finite(norm128(rhs[row])),
+                "linear system has an invalid row or right-hand side");
+        array_add(*row_scale, largest);
+        array_add(*answer, c_real(0.0));
+    }
+
+    for column: 0..size {
+        pivot := column;
+        best: f64 = 0.0;
+        for row: column..size {
+            ratio := norm128(matrix[row * size + column]) / row_scale[row];
+            if ratio > best { best = ratio; pivot = row; }
+        }
+        require(best > 1.0e-14 && is_finite(best),
+                "linear system is singular or numerically ill-conditioned");
+        if pivot != column {
+            for entry: column..size {
+                temporary := matrix[column * size + entry];
+                matrix[column * size + entry] = matrix[pivot * size + entry];
+                matrix[pivot * size + entry] = temporary;
+            }
+            temporary_rhs := rhs[column];
+            rhs[column] = rhs[pivot];
+            rhs[pivot] = temporary_rhs;
+            temporary_scale := row_scale[column];
+            row_scale[column] = row_scale[pivot];
+            row_scale[pivot] = temporary_scale;
+        }
+        for row: column + 1..size {
+            factor := matrix[row * size + column] / matrix[column * size + column];
+            matrix[row * size + column] = c_real(0.0);
+            for entry: column + 1..size {
+                matrix[row * size + entry] = matrix[row * size + entry] -
+                    factor * matrix[column * size + entry];
+            }
+            rhs[row] = rhs[row] - factor * rhs[column];
+        }
+    }
+    row := size;
+    while row > 0 {
+        row = row - 1;
+        value := rhs[row];
+        for column: row + 1..size {
+            value = value - matrix[row * size + column] * answer[column];
+        }
+        answer[row] = value / matrix[row * size + row];
+        require(is_finite(norm128(answer[row])), "linear solve produced a non-finite result");
+    }
+    for column: 0..size {
+        answer[column] = answer[column] / c_real(column_scale[column]);
+        require(is_finite(norm128(answer[column])), "linear solve produced a non-finite result");
+    }
+    return answer;
+}

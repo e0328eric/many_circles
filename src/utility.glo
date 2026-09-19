@@ -1,0 +1,25 @@
+#import "Io";
+#import "File_System/File";
+#import "Math/Core";
+#import "Math/Complex";
+#import "Math/Constants";
+
+c_real :: (value: f64) -> c128 {
+    return complex128(value, 0.0);
+}
+
+phase :: (angle: f64) -> c128 {
+    return complex128(cos(angle), sin(angle));
+}
+
+finite_complex :: (value: c128) -> bool {
+    return is_finite(real_part128(value)) &&
+           is_finite(imaginary_part128(value));
+}
+
+require :: (condition: bool, message: string) {
+    if !condition {
+        _ := writef(stderr(), "error: %\n", message);
+        exit(1);
+    }
+}

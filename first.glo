@@ -1,0 +1,88 @@
+// Run from the project root: glosso first.glo -- [build|run|test|clean|help]
+#import "Io";
+#import "File_System/Directory";
+#import "File_System/Types";
+Compiler :: #import "Compiler";
+
+usage :: () {
+    print("usage: glosso first.glo -- [build|run|test|clean|help]\n");
+    print("With no command, builds build/many_circle at -O2.\n");
+}
+
+check_tool :: (result: Compiler.Compiler_Error!string) {
+    if result == {
+    case .Ok(output); print("%", output);
+    case .Err(error);
+        print("%\n", error.message);
+        print("build command failed (status %)\n", error.status);
+        exit(1);
+    }
+}
+
+build_executable :: (source: string, name: string) {
+    workspace := Compiler.compiler_create_workspace(name);
+    options := Compiler.get_build_options(workspace);
+    options.output_path = "build";
+    options.output_executable_name = name;
+    options.optimization_level = .Optimized;
+    Compiler.add_compiler_arg(*options, "--cache-dir");
+    Compiler.add_compiler_arg(*options, "build/cache");
+    Compiler.set_build_options(options, workspace);
+    print("Building build/%\n", name);
+    check_tool(Compiler.add_build_file(source, workspace));
+}
+
+build :: () {
+    Compiler.set_build_options_dc(.do_output = false);
+    args := get_cmdline_args();
+    if args.count > 1 {
+        usage();
+        exit(1);
+    }
+    command := "build";
+    if args.count == 1 command = args[0];
+
+    if command == {
+    case "help"; #falling;
+    case "--help"; usage(); return;
+    case "clean";
+        if remove_all("build") == {
+        case .Ok; print("Removed build/\n");
+        case .Err(error);
+            print("cannot clean build/: %\n", fs_error_kind_reason(error.kind));
+            exit(1);
+        }
+        return;
+    case "build";
+    case "run";
+    else;
+        print("unknown command: %\n", command);
+        usage();
+        exit(1);
+    }
+
+    if create_directory("build", .make_parent = true) == {
+    case .Ok;
+    case .Err(error);
+        print("cannot create build/: %\n", fs_error_kind_reason(error.kind));
+        exit(1);
+    }
+
+    if command == "test" {
+        build_executable("tests/bessel.glo", "test_bessel");
+        build_executable("tests/single.glo", "test_single");
+        build_executable("tests/multi.glo", "test_multi");
+        build_executable("tests/c_reference.glo", "test_c_reference");
+        check_tool(Compiler.run_command("./build/test_bessel"));
+        check_tool(Compiler.run_command("./build/test_single"));
+        check_tool(Compiler.run_command("./build/test_multi"));
+        check_tool(Compiler.run_command("./build/test_c_reference"));
+    } else {
+        build_executable("src/main.glo", "many_circle");
+        if command == "run"
+            check_tool(Compiler.run_command("./build/many_circle"));
+    }
+}
+
+#comptime build();
+main :: () {}

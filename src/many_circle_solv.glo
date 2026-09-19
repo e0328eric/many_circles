@@ -1,0 +1,170 @@
+#import "Math/Complex";
+#import "Math/Core";
+#load "utility.glo";
+#load "circle.glo";
+#load "bessel_func.glo";
+#load "linear_solve.glo";
+
+// Owns copies of the geometry, incident coefficients, and solved expansions.
+// Each circle occupies data.count entries in outside and inside; modes run
+// from -data.count/2 through +data.count/2 in increasing order.
+Multi_Solution :: struct {
+    circles: [..]Circle;
+    omega: f64;
+    data: [..]c128;
+    outside: [..]c128;
+    inside: [..]c128;
+}
+
+multi_solution_free :: (solution: *Multi_Solution) {
+    array_free(*solution.*.circles);
+    array_free(*solution.*.data);
+    array_free(*solution.*.outside);
+    array_free(*solution.*.inside);
+}
+
+// Translate a global regular cylindrical wave to a receiving circle.
+// Graf: J_n(k|d+r|) exp(in arg(d+r)) =
+// sum_m J_(n-m)(k|d|) exp(i(n-m)arg(d)) J_m(k|r|) exp(im arg(r)).
+incident_at_circle_mode :: (
+    data: []c128, omega: f64, center: c128, mode: s64
+) -> c128 {
+    distance := norm128(center);
+    angle := atan2(imaginary_part128(center), real_part128(center));
+    half := data.count / 2;
+    value := c_real(0.0);
+    for index: 0..data.count {
+        if data[index] == c_real(0.0) continue;
+        order := cast(s64)(index - half) - mode;
+        value = value + data[index] * besselj(order, c_real(omega * distance)) *
+            phase(cast(f64)order * angle);
+    }
+    return value;
+}
+
+solve_multi_circle :: (circles: []Circle, omega: f64, data: []c128) -> Multi_Solution {
+    require(circles.count > 0, "multi-circle solve requires at least one circle");
+    require(data.count > 0 && data.count % 2 == 1,
+            "incident coefficients must have positive odd length");
+    for circle: circles { validate_circle(circle, omega); }
+    for coefficient: data {
+        require(is_finite(norm128(coefficient)), "incident coefficients must be finite");
+    }
+    for into: 0..circles.count {
+        for from: into + 1..circles.count {
+            require(norm128(circles[into].center - circles[from].center) >
+                    circles[into].radius + circles[from].radius,
+                    "circles must be disjoint and must not touch");
+        }
+    }
+    modes := data.count;
+    half := modes / 2;
+    block := circles.count * modes;
+    size := 2 * block;
+    matrix: [..]c128;
+    rhs: [..]c128;
+    defer array_free(*matrix);
+    defer array_free(*rhs);
+    array_reserve(*matrix, size * size);
+    array_reserve(*rhs, size);
+    for index: 0..size * size { array_add(*matrix, c_real(0.0)); }
+    for index: 0..size { array_add(*rhs, c_real(0.0)); }
+
+    for into: 0..circles.count {
+        circle := circles[into];
+        interior_k := wave_number(circle, omega);
+        exterior_argument := omega * circle.radius;
+        interior_argument := interior_k * c_real(circle.radius);
+        for local_index: 0..modes {
+            mode := cast(s64)(local_index - half);
+            row := into * modes + local_index;
+            regular := besselj(mode, c_real(exterior_argument));
+            regular_normal := c_real(omega) * besselj_deriv(mode, c_real(exterior_argument));
+            incoming := incident_at_circle_mode(data, omega, circle.center, mode);
+            rhs[row] = incoming * regular;
+            rhs[block + row] = incoming * regular_normal;
+
+            // u_inside - u_scattered = u_incident, and the same identity
+            // for outward derivatives, weighted by the interior density.
+            matrix[row * size + row] = -hankel1(mode, exterior_argument);
+            matrix[(block + row) * size + row] =
+                -c_real(omega) * hankel1_deriv(mode, exterior_argument);
+            matrix[row * size + block + row] = besselj(mode, interior_argument);
+            matrix[(block + row) * size + block + row] =
+                interior_k * besselj_deriv(mode, interior_argument) / circle.rho;
+
+            for from: 0..circles.count {
+                if from == into continue;
+                displacement := circle.center - circles[from].center;
+                distance := norm128(displacement);
+                angle := atan2(imaginary_part128(displacement), real_part128(displacement));
+                for source_index: 0..modes {
+                    source_mode := cast(s64)(source_index - half);
+                    order := source_mode - mode;
+                    translation := hankel1(order, omega * distance) *
+                        phase(cast(f64)order * angle);
+                    column := from * modes + source_index;
+                    matrix[row * size + column] = -translation * regular;
+                    matrix[(block + row) * size + column] = -translation * regular_normal;
+                }
+            }
+        }
+    }
+    coefficients := solve_complex_system(array_view(matrix), array_view(rhs));
+    defer array_free(*coefficients);
+    solution: Multi_Solution;
+    solution.omega = omega;
+    for circle: circles { array_add(*solution.circles, circle); }
+    for coefficient: data { array_add(*solution.data, coefficient); }
+    for index: 0..block {
+        array_add(*solution.outside, coefficients[index]);
+        array_add(*solution.inside, coefficients[block + index]);
+    }
+    return solution;
+}
+
+get_solution_value_multi :: (solution: *Multi_Solution, point: c128) -> c128 {
+    require(solution.*.data.count > 0 && solution.*.circles.count > 0,
+            "the multi-circle solution is empty");
+    require(is_finite(norm128(point)), "evaluation point must be finite");
+    modes := solution.*.data.count;
+    half := modes / 2;
+    for index: 0..solution.*.circles.count {
+        circle := solution.*.circles[index];
+        local := point - circle.center;
+        distance := norm128(local);
+        if distance <= circle.radius {
+            argument := wave_number(circle, solution.*.omega) * c_real(distance);
+            angle := atan2(imaginary_part128(local), real_part128(local));
+            value := c_real(0.0);
+            for local_index: 0..modes {
+                if solution.*.inside[index * modes + local_index] == c_real(0.0) continue;
+                mode := cast(s64)(local_index - half);
+                value = value + solution.*.inside[index * modes + local_index] *
+                    besselj(mode, argument) * phase(cast(f64)mode * angle);
+            }
+            return value;
+        }
+    }
+    distance := norm128(point);
+    angle := atan2(imaginary_part128(point), real_part128(point));
+    value := c_real(0.0);
+    for local_index: 0..modes {
+        if solution.*.data[local_index] == c_real(0.0) continue;
+        mode := cast(s64)(local_index - half);
+        value = value + solution.*.data[local_index] *
+            besselj(mode, c_real(solution.*.omega * distance)) * phase(cast(f64)mode * angle);
+    }
+    for index: 0..solution.*.circles.count {
+        local := point - solution.*.circles[index].center;
+        local_distance := norm128(local);
+        local_angle := atan2(imaginary_part128(local), real_part128(local));
+        for local_index: 0..modes {
+            if solution.*.outside[index * modes + local_index] == c_real(0.0) continue;
+            mode := cast(s64)(local_index - half);
+            value = value + solution.*.outside[index * modes + local_index] *
+                hankel1(mode, solution.*.omega * local_distance) * phase(cast(f64)mode * local_angle);
+        }
+    }
+    return value;
+}

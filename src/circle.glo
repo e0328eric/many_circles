@@ -1,0 +1,41 @@
+#load "utility.glo";
+#import "Io";
+#import "Math/Complex";
+#import "Math/Core";
+#import,only (complex_sqrt) "Math/SpecialFunctions";
+
+Circle :: struct {
+    center: c128;
+    radius: f64;
+    rho: c128;
+    kappa: c128;
+}
+
+validate_circle :: (circle: Circle, omega: f64) {
+    require(finite_complex(circle.center), "circle center must be finite");
+    require(is_finite(circle.radius) && circle.radius > 0.0,
+        "circle radius must be finite and positive");
+    require(finite_complex(circle.rho) && norm128(circle.rho) > 0.0,
+        "circle density must be finite and nonzero");
+    require(finite_complex(circle.kappa) && norm128(circle.kappa) > 0.0,
+        "circle bulk modulus must be finite and nonzero");
+    require(is_finite(omega) && omega > 0.0,
+        "frequency must be finite and positive");
+}
+
+wave_number :: (circle: Circle, omega: f64) -> c128 {
+    validate_circle(circle, omega);
+    value := complex_sqrt(circle.rho / circle.kappa) * c_real(omega);
+    require(finite_complex(value) && norm128(value) > 0.0,
+        "interior wave number must be finite and nonzero");
+    return value;
+}
+
+dump_circle :: (circle: Circle) {
+    print("Circle {\n");
+    print("    center = % + %{}i\n", real_part128(circle.center), imaginary_part128(circle.center));
+    print("    radius = %\n", circle.radius);
+    print("    rho = % + %{}i\n", real_part128(circle.rho), imaginary_part128(circle.rho));
+    print("    kappa = % + %{}i\n", real_part128(circle.kappa), imaginary_part128(circle.kappa));
+    print("}\n");
+}
