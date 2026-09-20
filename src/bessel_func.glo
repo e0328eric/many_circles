@@ -22,12 +22,12 @@ besselj :: (n: s64, z: c128) -> c128 {
 }
 
 bessely :: (n: s64, x: f64) -> c128 {
-    require(is_finite(x) && x > 0.0,
-        "Bessel Y requires a finite, positive real argument");
-    require(n > -1_000_000 && n < 1_000_000,
-        "Bessel order is outside the supported range");
+    #assert is_finite(x) && x > 0.0, "Bessel Y requires a finite, positive real argument";
+    #assert n > -1_000_000 && n < 1_000_000, "Bessel order is outside the supported range";
+
     value := bessel_y_integer(n, x);
-    require(is_finite(value), "Bessel Y overflowed");
+
+    #assert is_finite(value), "Bessel Y overflowed";
     return c_real(value);
 }
 
